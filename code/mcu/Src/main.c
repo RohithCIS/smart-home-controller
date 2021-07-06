@@ -64,7 +64,27 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 extern void initialise_monitor_handles(void);
+
+FATFS fs;
+FIL fil;
+FRESULT fresult;
+UINT br, bw;
+
+FATFS *pfs;
+DWORD fre_clust;
+uint32_t total, free_space;
+
+char buffer[1024];
+
+int bufsize(char *buf)
+{
+  int i = 0;
+  while (*buf++ != '\0')
+    i++;
+  return i;
+}
 
 /* USER CODE END 0 */
 
@@ -103,14 +123,40 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  while (1)
-  {
-    printf("Hello, World!\n");
-  }
+  printf("Init Complete\n");
+
+  // Mount SD Card
+  fresult = f_mount(&fs, "", 1);
+  if (fresult != FR_OK)
+    printf("Error Mounting SD Card | Code: %d\n", fresult);
+  else
+    printf("SD Card Mounted Successfully!\n");
+
+  f_getfree("", &fre_clust, &pfs);
+  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
+  printf("Total Size: %lu Bytes\n", total);
+  printf("Free Space: %lu Bytes\n", free_space);
+
+  fresult = f_open(&fil, "w.txt", FA_CREATE_ALWAYS | FA_WRITE);
+  if (fresult != FR_OK)
+    printf("Error opening file | Code: %d\n", fresult);
+  else
+    printf("File opened Successfully!\n");
+  /* Writing text */
+  strcpy(buffer, "This is w.txt, written using ...f_write... and it says Hello from Rohith\n");
+
+  fresult = f_write(&fil, buffer, bufsize(buffer), &bw);
+  if (fresult != FR_OK)
+    printf("Error Writing to SD Card | Code: %d\n", fresult);
+  else
+    printf("Write Success!\n");
   /* USER CODE END 2 */
 
+  f_close(&fil);
+
   /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
+  osKernelInitialize(); /* Call init function for freertos objects (in freertos.c) */
   MX_FREERTOS_Init();
   /* Start scheduler */
   osKernelStart();
@@ -164,8 +210,7 @@ void SystemClock_Config(void)
   }
   /** Initializes the CPU, AHB and APB buses clocks
   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -175,7 +220,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3|RCC_PERIPHCLK_CLK48;
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3 | RCC_PERIPHCLK_CLK48;
   PeriphClkInitStruct.Usart3ClockSelection = RCC_USART3CLKSOURCE_PCLK1;
   PeriphClkInitStruct.Clk48ClockSelection = RCC_CLK48SOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
@@ -201,7 +246,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM6) {
+  if (htim->Instance == TIM6)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
@@ -221,7 +267,7 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
