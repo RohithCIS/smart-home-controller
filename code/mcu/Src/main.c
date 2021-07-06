@@ -151,9 +151,10 @@ int main(void)
     printf("Error Writing to SD Card | Code: %d\n", fresult);
   else
     printf("Write Success!\n");
-  /* USER CODE END 2 */
 
   f_close(&fil);
+
+  /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize(); /* Call init function for freertos objects (in freertos.c) */
