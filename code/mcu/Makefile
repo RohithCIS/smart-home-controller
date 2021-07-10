@@ -91,7 +91,8 @@ Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM7/r0p1/port.c \
 Middlewares/Third_Party/FatFsSD/fatfs_sd.c \
-Middlewares/Third_Party/FatFs/src/option/ccsbcs.c
+Middlewares/Third_Party/FatFs/src/option/ccsbcs.c \
+Middlewares/User_Libs/WavLib/wavlib.c
 
 # ASM sources
 ASM_SOURCES =  \
@@ -158,7 +159,8 @@ C_INCLUDES =  \
 -IMiddlewares/Third_Party/FatFs/src \
 -IDrivers/CMSIS/Device/ST/STM32F7xx/Include \
 -IDrivers/CMSIS/Include \
--IMiddlewares/Third_Party/FatFsSD
+-IMiddlewares/Third_Party/FatFsSD \
+-IMiddlewares/User_Libs/WavLib
 
 
 # compile gcc flags

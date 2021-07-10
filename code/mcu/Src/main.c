@@ -33,6 +33,8 @@
 #include "stdio.h"
 #include "string.h"
 #include "fatfs_sd.h"
+#include "wavlib.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -84,6 +86,36 @@ int bufsize(char *buf)
   while (*buf++ != '\0')
     i++;
   return i;
+}
+
+void writeWave()
+{
+
+  double frequency1 = 493.9; /*B4*/
+  double amplitude1 = 0.65 * (double)SHRT_MAX;
+  double frequency2 = 392.0; /*G4*/
+  double amplitude2 = 0.75 * (double)SHRT_MAX;
+
+  double duration = 10; /*seconds*/
+  int32_t FrameCount = duration * SAMPLE_RATE;
+
+  wavfile_header_t header;
+  PCM16_stereo_t sample;
+
+  printf("Begin WAV Write:\r\n");
+  f_open(&fil, "test.wav", FA_OPEN_ALWAYS | FA_WRITE);
+
+  header = get_PCM16_stereo_header(SAMPLE_RATE, FrameCount);
+  f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+
+  for (int k = 0; k < FrameCount; k++)
+  {
+    sample = get_dual_sawtooth_sample(frequency1, amplitude1, frequency2, amplitude2, SAMPLE_RATE, FrameCount, k);
+    f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+  }
+
+  f_close(&fil);
+  printf("WAV Write Complete\r\n");
 }
 
 /* USER CODE END 0 */
@@ -153,6 +185,8 @@ int main(void)
     printf("Write Success!\n");
 
   f_close(&fil);
+
+  writeWave();
 
   /* USER CODE END 2 */
 
