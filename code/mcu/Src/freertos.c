@@ -55,6 +55,13 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 128 * 4
 };
+/* Definitions for audioInputList */
+osThreadId_t audioInputListHandle;
+const osThreadAttr_t audioInputList_attributes = {
+  .name = "audioInputList",
+  .priority = (osPriority_t) osPriorityRealtime,
+  .stack_size = 128 * 4
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -62,6 +69,7 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
+void StartAudioInput(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -95,6 +103,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  /* creation of audioInputList */
+  audioInputListHandle = osThreadNew(StartAudioInput, NULL, &audioInputList_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -112,11 +123,30 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
-  for(;;)
+  for (;;)
+  {
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+    osDelay(2000);
+  }
+  /* USER CODE END StartDefaultTask */
+}
+
+/* USER CODE BEGIN Header_StartAudioInput */
+/**
+* @brief Function implementing the audioInputListe thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartAudioInput */
+__weak void StartAudioInput(void *argument)
+{
+  /* USER CODE BEGIN StartAudioInput */
+  /* Infinite loop */
+  for (;;)
   {
     osDelay(1);
   }
-  /* USER CODE END StartDefaultTask */
+  /* USER CODE END StartAudioInput */
 }
 
 /* Private application code --------------------------------------------------*/

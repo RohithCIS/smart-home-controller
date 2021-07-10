@@ -21,6 +21,7 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "adc.h"
+#include "dma.h"
 #include "eth.h"
 #include "fatfs.h"
 #include "spi.h"
@@ -44,6 +45,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ADC_BUFFER_SIZE 4410
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,6 +56,26 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+uint16_t adc_buff[ADC_BUFFER_SIZE];
+
+uint16_t raw;
+
+FATFS fs;
+FIL fil;
+FRESULT fresult;
+UINT br, bw;
+
+FATFS *pfs;
+DWORD fre_clust;
+uint32_t total, free_space;
+
+char buffer[1024];
+
+int32_t fc = 5 * SAMPLE_RATE;
+int32_t dc = 0;
+
+wavfile_header_t header;
+PCM16_stereo_t sample;
 
 /* USER CODE END PV */
 
@@ -68,17 +90,6 @@ void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN 0 */
 
 extern void initialise_monitor_handles(void);
-
-FATFS fs;
-FIL fil;
-FRESULT fresult;
-UINT br, bw;
-
-FATFS *pfs;
-DWORD fre_clust;
-uint32_t total, free_space;
-
-char buffer[1024];
 
 int bufsize(char *buf)
 {
@@ -118,6 +129,14 @@ void writeWave()
   printf("WAV Write Complete\r\n");
 }
 
+void StartAudioInput(void *argument)
+{
+  for (;;)
+  {
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -148,6 +167,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_ETH_Init();
   MX_SPI1_Init();
@@ -155,7 +175,7 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  printf("Init Complete\n");
+  printf("Firmware Init Complete\n");
 
   // Mount SD Card
   fresult = f_mount(&fs, "", 1);
@@ -170,23 +190,31 @@ int main(void)
   printf("Total Size: %lu Bytes\n", total);
   printf("Free Space: %lu Bytes\n", free_space);
 
-  fresult = f_open(&fil, "w.txt", FA_CREATE_ALWAYS | FA_WRITE);
-  if (fresult != FR_OK)
-    printf("Error opening file | Code: %d\n", fresult);
-  else
-    printf("File opened Successfully!\n");
-  /* Writing text */
-  strcpy(buffer, "This is w.txt, written using ...f_write... and it says Hello from Rohith\n");
+  printf("Starting ADC DMA for Microphone\n");
+  printf("Begin WAV Write:\r\n");
+  f_open(&fil, "test.wav", FA_OPEN_ALWAYS | FA_WRITE);
 
-  fresult = f_write(&fil, buffer, bufsize(buffer), &bw);
-  if (fresult != FR_OK)
-    printf("Error Writing to SD Card | Code: %d\n", fresult);
-  else
-    printf("Write Success!\n");
+  header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
+  f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
 
-  f_close(&fil);
+  // fresult = f_open(&fil, "w.txt", FA_CREATE_ALWAYS | FA_WRITE);
+  // if (fresult != FR_OK)
+  //   printf("Error opening file | Code: %d\n", fresult);
+  // else
+  //   printf("File opened Successfully!\n");
+  // /* Writing text */
+  // strcpy(buffer, "This is w.txt, written using ...f_write... and it says Hello from Rohith\n");
 
-  writeWave();
+  // fresult = f_write(&fil, buffer, bufsize(buffer), &bw);
+  // if (fresult != FR_OK)
+  //   printf("Error Writing to SD Card | Code: %d\n", fresult);
+  // else
+  //   printf("Write Success!\n");
+
+  // f_close(&fil);
+
+  // writeWave();
 
   /* USER CODE END 2 */
 
@@ -265,7 +293,48 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (dc < fc)
+  {
+    printf("Frames Done: %lu\n", dc);
+    for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
+    {
+      sample.left = adc_buff[i];
+      sample.right = adc_buff[i];
+      f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      dc++;
+    }
+  }
+  else
+  {
+    HAL_ADC_Stop_DMA(&hadc1);
+    printf("ADC DMA Stopped\n");
+    fclose(&fil);
+    printf("WAV Write Complete\r\n");
+  }
+}
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (dc < fc)
+  {
+    printf("Frames Done: %lu\n", dc);
+    for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
+    {
+      sample.left = adc_buff[i];
+      sample.right = adc_buff[i];
+      f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      dc++;
+    }
+  }
+  else
+  {
+    HAL_ADC_Stop_DMA(&hadc1);
+    printf("ADC DMA Stopped\n");
+    fclose(&fil);
+    printf("WAV Write Complete\r\n");
+  }
+}
 /* USER CODE END 4 */
 
 /**
