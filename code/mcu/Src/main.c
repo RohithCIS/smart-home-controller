@@ -45,7 +45,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ADC_BUFFER_SIZE 4410
+#define ADC_BUFFER_SIZE 32
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -71,7 +71,7 @@ uint32_t total, free_space;
 
 char buffer[1024];
 
-int32_t fc = 5 * SAMPLE_RATE;
+int32_t fc = 2 * SAMPLE_RATE;
 int32_t dc = 0;
 
 wavfile_header_t header;
@@ -192,7 +192,7 @@ int main(void)
 
   printf("Starting ADC DMA for Microphone\n");
   printf("Begin WAV Write:\r\n");
-  f_open(&fil, "test.wav", FA_OPEN_ALWAYS | FA_WRITE);
+  f_open(&fil, "pcm.wav", FA_OPEN_ALWAYS | FA_WRITE);
 
   header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
   f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
@@ -297,34 +297,92 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
   if (dc < fc)
   {
-    printf("Frames Done: %lu\n", dc);
+    dc++;
+    // int flag = 0;
+    // for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
+    // {
+    //   sample.left = 0b0000000000000000;
+    //   printf("Frame %d, Value %lu\n", dc, adc_buff[i]);
+    //   if (dc < fc)
+    //   {
+    //     dc++;
+    //     if (i == 0)
+    //     {
+    //       continue;
+    //     }
+    //     if (adc_buff[i] >= adc_buff[i - 1])
+    //     {
+    //       sample.left |= 1UL << i;
+    //     }
+    //   }
+    //   else
+    //   {
+    //     break;
+    //     HAL_ADC_Stop_DMA(&hadc1);
+    //     printf("ADC DMA Stopped\n");
+    //     flag = 1;
+    //   }
+    // }
     for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
     {
       sample.left = adc_buff[i];
-      sample.right = adc_buff[i];
+      sample.right = sample.left;
       f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-      dc++;
     }
   }
   else
   {
+
     HAL_ADC_Stop_DMA(&hadc1);
     printf("ADC DMA Stopped\n");
     fclose(&fil);
     printf("WAV Write Complete\r\n");
   }
 }
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+  // int flag = 0;
+  // for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
+  // {
+  //   sample.left = 0b0000000000000000;
+  //   printf("Frame %d\n", dc);
+  //   if (dc < fc)
+  //   {
+  //     dc++;
+  //     if (i == 0)
+  //     {
+  //       continue;
+  //     }
+  //     if (adc_buff[i] >= adc_buff[i - 1])
+  //     {
+  //       sample.left |= 1UL << i;
+  //     }
+  //   }
+  //   else
+  //   {
+  //     break;
+  //     HAL_ADC_Stop_DMA(&hadc1);
+  //     printf("ADC DMA Stopped\n");
+  //     flag = 1;
+  //   }
+  // }
+  // printf("Writing %lu\n", sample.left);
+  // sample.right = sample.left;
+  // f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+  // if (flag)
+  // {
+  //   fclose(&fil);
+  //   printf("WAV Write Complete\r\n");
+  // }
   if (dc < fc)
   {
-    printf("Frames Done: %lu\n", dc);
+    dc++;
     for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
     {
       sample.left = adc_buff[i];
-      sample.right = adc_buff[i];
+      sample.right = sample.left;
       f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-      dc++;
     }
   }
   else
