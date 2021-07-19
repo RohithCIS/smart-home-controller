@@ -97,6 +97,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   initialise_monitor_handles();
+  printf("Main Entry\n");
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -127,17 +128,17 @@ int main(void)
   /* USER CODE BEGIN 2 */
   printf("Firmware Init Complete\n");
   // Mount SD Card
-  fresult = f_mount(&fs, "", 1);
-  if (fresult != FR_OK)
-    printf("Error Mounting SD Card | Code: %d\n", fresult);
-  else
-    printf("SD Card Mounted Successfully!\n");
-
-  f_getfree("", &fre_clust, &pfs);
-  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
-  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
-  printf("Total Size: %lu Bytes\n", total);
-  printf("Free Space: %lu Bytes\n", free_space);
+//  fresult = f_mount(&fs, "", 1);
+//  if (fresult != FR_OK)
+//    printf("Error Mounting SD Card | Code: %d\n", fresult);
+//  else
+//    printf("SD Card Mounted Successfully!\n");
+//
+//  f_getfree("", &fre_clust, &pfs);
+//  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+//  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
+//  printf("Total Size: %lu Bytes\n", total);
+//  printf("Free Space: %lu Bytes\n", free_space);
   /* USER CODE END 2 */
 
   /* Init scheduler */
