@@ -1,3 +1,0 @@
-eth.c:30:6:MX_ETH_Init	8	static
-eth.c:69:6:HAL_ETH_MspInit	64	static
-eth.c:130:6:HAL_ETH_MspDeInit	16	static

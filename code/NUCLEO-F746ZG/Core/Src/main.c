@@ -31,7 +31,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdio.h"
+#include "string.h"
+#include "fatfs_sd.h"
+#include "wavlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,6 +44,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ADC_BUFFER_SIZE 32
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,7 +55,26 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+uint16_t adc_buff[ADC_BUFFER_SIZE];
 
+uint16_t raw;
+
+FATFS fs;
+FIL fil;
+FRESULT fresult;
+UINT br, bw;
+
+FATFS *pfs;
+DWORD fre_clust;
+uint32_t total, free_space;
+
+char buffer[1024];
+
+int32_t fc = 1 * SAMPLE_RATE;
+int32_t dc = 0;
+
+wavfile_header_t header;
+PCM16_stereo_t sample;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,7 +86,7 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+extern void initialise_monitor_handles(void);
 /* USER CODE END 0 */
 
 /**
@@ -73,7 +96,7 @@ void MX_FREERTOS_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  initialise_monitor_handles();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -102,7 +125,19 @@ int main(void)
   MX_SPI1_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
+  printf("Firmware Init Complete\n");
+  // Mount SD Card
+  fresult = f_mount(&fs, "", 1);
+  if (fresult != FR_OK)
+    printf("Error Mounting SD Card | Code: %d\n", fresult);
+  else
+    printf("SD Card Mounted Successfully!\n");
 
+  f_getfree("", &fre_clust, &pfs);
+  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
+  printf("Total Size: %lu Bytes\n", total);
+  printf("Free Space: %lu Bytes\n", free_space);
   /* USER CODE END 2 */
 
   /* Init scheduler */
