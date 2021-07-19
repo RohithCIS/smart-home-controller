@@ -22,7 +22,6 @@
 #include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
-#include "eth.h"
 #include "fatfs.h"
 #include "spi.h"
 #include "usart.h"
@@ -44,6 +43,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define USE_FULL_ASSERT
 #define ADC_BUFFER_SIZE 32
 /* USER CODE END PD */
 
@@ -87,6 +87,16 @@ void MX_FREERTOS_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 extern void initialise_monitor_handles(void);
+
+void closeFile()
+{
+  fresult = f_close(&fil);
+  if (fresult != FR_OK)
+    printf("Error Closing File | Code: %d\n", fresult);
+  else
+    printf("WAV File Written Successfully!\n");
+  return;
+}
 /* USER CODE END 0 */
 
 /**
@@ -97,7 +107,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   initialise_monitor_handles();
-  printf("Main Entry\n");
+  printf("┏━ Boot Complete...\n");
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -119,26 +129,40 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ETH_Init();
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_ADC1_Init();
   MX_SPI1_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  printf("Firmware Init Complete\n");
+  printf("┣━ Firmware Init Complete...\n");
   // Mount SD Card
-//  fresult = f_mount(&fs, "", 1);
-//  if (fresult != FR_OK)
-//    printf("Error Mounting SD Card | Code: %d\n", fresult);
-//  else
-//    printf("SD Card Mounted Successfully!\n");
-//
-//  f_getfree("", &fre_clust, &pfs);
-//  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
-//  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
-//  printf("Total Size: %lu Bytes\n", total);
-//  printf("Free Space: %lu Bytes\n", free_space);
+  fresult = f_mount(&fs, "", 1);
+  if (fresult != FR_OK)
+    printf("██ Error Mounting SD Card | Code: %d\n", fresult);
+  else
+    printf("┣━ SD Card Mounted Successfully...\n");
+
+  f_getfree("", &fre_clust, &pfs);
+  total = (uint32_t)((pfs->n_fatent - 2) * pfs->csize * 0.5);
+  free_space = (uint32_t)(fre_clust * pfs->csize * 0.5);
+  printf("┃  ┣━ Total Size: %lu Bytes\n", total);
+  printf("┃  ┗━ Free Space: %lu Bytes\n", free_space);
+
+  printf("Starting ADC DMA for Microphone\n");
+  printf("Begin WAV Write:\r\n");
+  f_open(&fil, "wololo.wav", FA_OPEN_ALWAYS | FA_WRITE);
+
+  header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
+  fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+  if (fresult != FR_OK)
+	printf("Error Writing Header to SD Card | Code: %d\n", fresult);
+  else
+	printf("Wrote Header to SD Card\n");
+  f_sync(&fil);
+
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -180,7 +204,7 @@ void SystemClock_Config(void)
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -220,7 +244,51 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (dc < fc)
+  {
+    printf("Frames Done: %lu\n", dc);
+    for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
+    {
+      sample.left = adc_buff[i];
+      sample.right = sample.left;
+      dc++;
+      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      if (fresult != FR_OK)
+        printf("Error Writing to SD Card | Code: %d\n", fresult);
+    }
+  }
+  else
+  {
+    HAL_ADC_Stop_DMA(&hadc1);
+    printf("ADC DMA Stopped\n");
+    closeFile();
+  }
+}
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (dc < fc)
+  {
+    printf("Frames Done: %lu\n", dc);
+    for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
+    {
+      sample.left = adc_buff[i];
+      sample.right = sample.left;
+      dc++;
+      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      if (fresult != FR_OK)
+        printf("Error Writing to SD Card | Code: %d\n", fresult);
+    }
+  }
+  else
+  {
+    HAL_ADC_Stop_DMA(&hadc1);
+    printf("ADC DMA Stopped\n");
+    closeFile();
+  }
+}
 /* USER CODE END 4 */
 
  /**
@@ -272,6 +340,7 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+	printf("Error: file %s on line %lu\r\n", file, line);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
