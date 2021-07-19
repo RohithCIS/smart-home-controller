@@ -51,17 +51,19 @@
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 128 * 4
-};
-/* Definitions for audioInputList */
-osThreadId_t audioInputListHandle;
-const osThreadAttr_t audioInputList_attributes = {
-  .name = "audioInputList",
-  .priority = (osPriority_t) osPriorityRealtime,
-  .stack_size = 128 * 4
-};
+    .name = "defaultTask",
+    .priority = (osPriority_t)osPriorityNormal,
+    .stack_size = 128 * 4};
+/* Definitions for audioInputTask */
+osThreadId_t audioInputTaskHandle;
+const osThreadAttr_t audioInputTask_attributes = {
+    .name = "audioInputTask",
+    .priority = (osPriority_t)osPriorityHigh,
+    .stack_size = 128 * 4};
+/* Definitions for audioCaptureSemaphore */
+osSemaphoreId_t audioCaptureSemaphoreHandle;
+const osSemaphoreAttr_t audioCaptureSemaphore_attributes = {
+    .name = "audioCaptureSemaphore"};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -78,7 +80,8 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   * @param  None
   * @retval None
   */
-void MX_FREERTOS_Init(void) {
+void MX_FREERTOS_Init(void)
+{
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -86,6 +89,10 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* creation of audioCaptureSemaphore */
+  audioCaptureSemaphoreHandle = osSemaphoreNew(1, 1, &audioCaptureSemaphore_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -103,13 +110,12 @@ void MX_FREERTOS_Init(void) {
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-  /* creation of audioInputList */
-  audioInputListHandle = osThreadNew(StartAudioInput, NULL, &audioInputList_attributes);
+  /* creation of audioInputTask */
+  audioInputTaskHandle = osThreadNew(StartAudioInput, NULL, &audioInputTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
-
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -125,15 +131,14 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for (;;)
   {
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
-    osDelay(2000);
+    osDelay(1);
   }
   /* USER CODE END StartDefaultTask */
 }
 
 /* USER CODE BEGIN Header_StartAudioInput */
 /**
-* @brief Function implementing the audioInputListe thread.
+* @brief Function implementing the audioInputTask thread.
 * @param argument: Not used
 * @retval None
 */

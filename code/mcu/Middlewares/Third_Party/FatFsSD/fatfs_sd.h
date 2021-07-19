@@ -26,11 +26,11 @@
 #define CT_BLOCK 0x08 /* Block addressing */
 
 /* Functions */
-DSTATUS SD_disk_initialize(BYTE pdrv);
-DSTATUS SD_disk_status(BYTE pdrv);
-DRESULT SD_disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count);
-DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count);
-DRESULT SD_disk_ioctl(BYTE pdrv, BYTE cmd, void *buff);
+extern "C" DSTATUS SD_disk_initialize(BYTE pdrv);
+extern "C" DSTATUS SD_disk_status(BYTE pdrv);
+extern "C" DRESULT SD_disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count);
+extern "C" DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count);
+extern "C" DRESULT SD_disk_ioctl(BYTE pdrv, BYTE cmd, void *buff);
 
 #define SPI_TIMEOUT 100
 

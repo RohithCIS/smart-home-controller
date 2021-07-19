@@ -71,7 +71,7 @@ uint32_t total, free_space;
 
 char buffer[1024];
 
-int32_t fc = 2 * SAMPLE_RATE;
+int32_t fc = 1 * SAMPLE_RATE;
 int32_t dc = 0;
 
 wavfile_header_t header;
@@ -129,12 +129,14 @@ void writeWave()
   printf("WAV Write Complete\r\n");
 }
 
-void StartAudioInput(void *argument)
+void closeFile()
 {
-  for (;;)
-  {
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
-  }
+  fresult = f_close(&fil);
+  if (fresult != FR_OK)
+    printf("Error Closing File | Code: %d\n", fresult);
+  else
+    printf("WAV File Written Successfully!\n");
+  return;
 }
 
 /* USER CODE END 0 */
@@ -190,13 +192,8 @@ int main(void)
   printf("Total Size: %lu Bytes\n", total);
   printf("Free Space: %lu Bytes\n", free_space);
 
-  printf("Starting ADC DMA for Microphone\n");
-  printf("Begin WAV Write:\r\n");
-  f_open(&fil, "pcm.wav", FA_OPEN_ALWAYS | FA_WRITE);
-
-  header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
-  f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
+  // HAL_ADC_Start(&hadc1);
+  // HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 
   // fresult = f_open(&fil, "w.txt", FA_CREATE_ALWAYS | FA_WRITE);
   // if (fresult != FR_OK)
@@ -293,104 +290,72 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void StartAudioInput(void *argument)
+{
+  for (;;)
+  {
+    osSemaphoreAcquire(audioCaptureSemaphoreHandle, osWaitForever);
+    printf("Starting ADC DMA for Microphone\n");
+    printf("Begin WAV Write:\r\n");
+    f_open(&fil, "wololo.wav", FA_OPEN_ALWAYS | FA_WRITE);
+
+    header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
+    fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+    if (fresult != FR_OK)
+      printf("Error Writing Header to SD Card | Code: %d\n", fresult);
+    else
+      printf("Wrote Header to SD Card\n");
+    f_sync(&fil);
+
+    // HAL_ADC_Start(&hadc1);
+    // HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
+  }
+}
+
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
   if (dc < fc)
   {
-    dc++;
-    // int flag = 0;
-    // for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
-    // {
-    //   sample.left = 0b0000000000000000;
-    //   printf("Frame %d, Value %lu\n", dc, adc_buff[i]);
-    //   if (dc < fc)
-    //   {
-    //     dc++;
-    //     if (i == 0)
-    //     {
-    //       continue;
-    //     }
-    //     if (adc_buff[i] >= adc_buff[i - 1])
-    //     {
-    //       sample.left |= 1UL << i;
-    //     }
-    //   }
-    //   else
-    //   {
-    //     break;
-    //     HAL_ADC_Stop_DMA(&hadc1);
-    //     printf("ADC DMA Stopped\n");
-    //     flag = 1;
-    //   }
-    // }
+    printf("Frames Done: %lu\n", dc);
     for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
     {
       sample.left = adc_buff[i];
       sample.right = sample.left;
-      f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      dc++;
+      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      if (fresult != FR_OK)
+        printf("Error Writing to SD Card | Code: %d\n", fresult);
     }
   }
   else
   {
-
     HAL_ADC_Stop_DMA(&hadc1);
     printf("ADC DMA Stopped\n");
-    fclose(&fil);
-    printf("WAV Write Complete\r\n");
+    closeFile();
   }
 }
-
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-  // int flag = 0;
-  // for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
-  // {
-  //   sample.left = 0b0000000000000000;
-  //   printf("Frame %d\n", dc);
-  //   if (dc < fc)
-  //   {
-  //     dc++;
-  //     if (i == 0)
-  //     {
-  //       continue;
-  //     }
-  //     if (adc_buff[i] >= adc_buff[i - 1])
-  //     {
-  //       sample.left |= 1UL << i;
-  //     }
-  //   }
-  //   else
-  //   {
-  //     break;
-  //     HAL_ADC_Stop_DMA(&hadc1);
-  //     printf("ADC DMA Stopped\n");
-  //     flag = 1;
-  //   }
-  // }
-  // printf("Writing %lu\n", sample.left);
-  // sample.right = sample.left;
-  // f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-  // if (flag)
-  // {
-  //   fclose(&fil);
-  //   printf("WAV Write Complete\r\n");
-  // }
   if (dc < fc)
   {
-    dc++;
+    printf("Frames Done: %lu\n", dc);
     for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
     {
       sample.left = adc_buff[i];
       sample.right = sample.left;
-      f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      dc++;
+      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+      if (fresult != FR_OK)
+        printf("Error Writing to SD Card | Code: %d\n", fresult);
     }
   }
   else
   {
     HAL_ADC_Stop_DMA(&hadc1);
     printf("ADC DMA Stopped\n");
-    fclose(&fil);
-    printf("WAV Write Complete\r\n");
+    closeFile();
   }
 }
 /* USER CODE END 4 */

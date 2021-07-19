@@ -488,7 +488,7 @@ DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
 DRESULT SD_disk_ioctl(BYTE drv, BYTE ctrl, void *buff)
 {
   DRESULT res;
-  uint8_t n, csd[16], *ptr = buff;
+  uint8_t n, csd[16], *ptr = static_cast<uint8_t *>(buff);
   WORD csize;
 
   /* pdrv should be 0 */
