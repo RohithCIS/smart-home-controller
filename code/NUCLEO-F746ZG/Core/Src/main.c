@@ -23,7 +23,9 @@
 #include "adc.h"
 #include "dma.h"
 #include "fatfs.h"
+#include "i2s.h"
 #include "spi.h"
+#include "tim.h"
 #include "usart.h"
 #include "usb_otg.h"
 #include "gpio.h"
@@ -34,6 +36,9 @@
 #include "string.h"
 #include "fatfs_sd.h"
 #include "wavlib.h"
+
+#define ARM_MATH_CM7
+#include "arm_math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,7 +49,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define USE_FULL_ASSERT
-#define ADC_BUFFER_SIZE 4410
+#define ADC_BUFFER_SIZE 2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,6 +60,57 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+
+/*
+
+FIR filter designed with
+http://t-filter.appspot.com
+
+sampling frequency: 2000 Hz
+
+* 0 Hz - 400 Hz
+  gain = 1
+  desired ripple = 5 dB
+  actual ripple = 4.1393894966071585 dB
+
+* 500 Hz - 1000 Hz
+  gain = 0
+  desired attenuation = -40 dB
+  actual attenuation = -40.07355419274887 dB
+
+*/
+
+#define FILTER_TAP_NUM	29
+#define BLOCK_SIZE		1
+
+static float32_t filter_taps[FILTER_TAP_NUM] = {
+
+		-0.0018225230f, -0.0015879294f, +0.0000000000f, +0.0036977508f, +0.0080754303f,
+
+
+	    +0.0085302217f, -0.0000000000f, -0.0173976984f, -0.0341458607f, -0.0333591565f,
+
+
+	    +0.0000000000f, +0.0676308395f, +0.1522061835f, +0.2229246956f, +0.2504960933f,
+
+
+	    +0.2229246956f, +0.1522061835f, +0.0676308395f, +0.0000000000f, -0.0333591565f,
+
+
+	    -0.0341458607f, -0.0173976984f, -0.0000000000f, +0.0085302217f, +0.0080754303f,
+
+
+	    +0.0036977508f, +0.0000000000f, -0.0015879294f, -0.0018225230f};
+
+// FIR DECLARATIONS
+arm_fir_instance_f32 FilterSettings;
+static float32_t firState[BLOCK_SIZE + FILTER_TAP_NUM - 1];
+uint32_t blockSize = BLOCK_SIZE;
+
+float32_t signal_in = 0;
+float32_t signal_out = 0;
+
+// DMA AND SD FILE SYSTEM DECLARATIONS
 volatile uint16_t adc_buff[ADC_BUFFER_SIZE];
 
 uint16_t raw;
@@ -68,13 +124,13 @@ FATFS *pfs;
 DWORD fre_clust;
 uint32_t total, free_space;
 
-char buffer[2];
-
 int32_t fc = 5 * SAMPLE_RATE;
 int32_t dc = 0;
 
 wavfile_header_t header;
 PCM16_stereo_t sample;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -138,8 +194,15 @@ int main(void)
   MX_ADC1_Init();
   MX_SPI1_Init();
   MX_FATFS_Init();
+  MX_I2S2_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   printf("┣━ Firmware Init Complete...\n");
+
+//  FIR INIT
+  arm_fir_init_f32(&FilterSettings, FILTER_TAP_NUM, (float32_t *)&filter_taps[0], (float32_t *)&firState[0], blockSize);
+  printf("┣━ FIR Low Pass Filter Init Complete...\n");
+
   // Mount SD Card
   fresult = f_mount(&fs, "", 1);
   if (fresult != FR_OK)
@@ -224,7 +287,14 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3|RCC_PERIPHCLK_CLK48;
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART3|RCC_PERIPHCLK_I2S
+                              |RCC_PERIPHCLK_CLK48;
+  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
+  PeriphClkInitStruct.PLLI2S.PLLI2SP = RCC_PLLP_DIV2;
+  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
+  PeriphClkInitStruct.PLLI2S.PLLI2SQ = 2;
+  PeriphClkInitStruct.PLLI2SDivQ = 1;
+  PeriphClkInitStruct.I2sClockSelection = RCC_I2SCLKSOURCE_PLLI2S;
   PeriphClkInitStruct.Usart3ClockSelection = RCC_USART3CLKSOURCE_PCLK1;
   PeriphClkInitStruct.Clk48ClockSelection = RCC_CLK48SOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
@@ -245,7 +315,7 @@ void StartDefaultTask(void *argument) {
 void StartAudioInputTask(void *argument) {
 	printf("┣━ Microphone ADC-DMA Channel Setup Complete...\n");
 	printf("┃  ┣━ Starting WAV Write...\r\n");
-	f_open(&fil, "wol.wav", FA_OPEN_ALWAYS | FA_WRITE);
+	f_open(&fil, "htim8k.wav", FA_OPEN_ALWAYS | FA_WRITE);
 
 	header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
 	fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
@@ -254,6 +324,7 @@ void StartAudioInputTask(void *argument) {
 	else
 	printf("┃  ┃  ┗━ Wrote WAV Header to File\n");
 	f_sync(&fil);
+	HAL_TIM_Base_Start_IT(&htim7);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
 	for(;;) {
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
@@ -263,46 +334,52 @@ void StartAudioInputTask(void *argument) {
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
-  if (dc < fc)
-  {
-    for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
-    {
-      sample.left = to_u16(adc_buff[i]);
+//  if (dc < fc)
+//  {
+//    for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
+//    {
+		signal_in = (float32_t)to_u16(adc_buff[0]);
+		arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
+
+      sample.left = (uint16_t)signal_out;
       sample.right = sample.left;
-      dc++;
-      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-      if (fresult != FR_OK)
-        printf("Error Writing to SD Card | Code: %d\n", fresult);
-    }
-  }
-  else
-  {
-    HAL_ADC_Stop_DMA(&hadc1);
-    printf("┃  ┗━ Write Complete. ADC Halted.\n");
-    closeFile();
-  }
+//      dc++;
+//      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+//      if (fresult != FR_OK)
+//        printf("Error Writing to SD Card | Code: %d\n", fresult);
+//    }
+//  }
+//  else
+//  {
+//    HAL_ADC_Stop_DMA(&hadc1);
+//    printf("┃  ┗━ Write Complete. ADC Halted.\n");
+//    closeFile();
+//  }
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-  if (dc < fc)
-  {
-    for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
-    {
-      sample.left = to_u16(adc_buff[i]);
-      sample.right = sample.left;
-      dc++;
-      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-      if (fresult != FR_OK)
-        printf("Error Writing to SD Card | Code: %d\n", fresult);
-    }
-  }
-  else
-  {
-    HAL_ADC_Stop_DMA(&hadc1);
-    printf("┃  ┗━ Write Complete. ADC Halted.\n");
-    closeFile();
-  }
+//  if (dc < fc)
+//  {
+//    for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
+//    {
+		signal_in = (float32_t)to_u16(adc_buff[1]);
+		arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
+
+	  sample.left = (uint16_t)signal_out;
+	  sample.right = sample.left;
+//      dc++;
+//      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+//      if (fresult != FR_OK)
+//        printf("Error Writing to SD Card | Code: %d\n", fresult);
+//    }
+//  }
+//  else
+//  {
+//    HAL_ADC_Stop_DMA(&hadc1);
+//    printf("┃  ┗━ Write Complete. ADC Halted.\n");
+//    closeFile();
+//  }
 }
 /* USER CODE END 4 */
 
@@ -323,7 +400,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM7) {
+	  if (dc < fc) {
+		  dc++;
+		  fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+		  if (fresult != FR_OK)
+			  printf("Error Writing to SD Card | Code: %d\n", fresult);
+	  } else {
+		  	  HAL_TIM_Base_Stop_IT(&htim7);
+		      HAL_ADC_Stop_DMA(&hadc1);
+		      printf("┃  ┗━ Write Complete. ADC Halted.\n");
+		      closeFile();
+	  }
+  }
   /* USER CODE END Callback 1 */
 }
 
