@@ -68,7 +68,7 @@ FATFS *pfs;
 DWORD fre_clust;
 uint32_t total, free_space;
 
-char buffer[1024];
+char buffer[2];
 
 int32_t fc = 5 * SAMPLE_RATE;
 int32_t dc = 0;
@@ -87,6 +87,10 @@ void MX_FREERTOS_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 extern void initialise_monitor_handles(void);
+
+uint16_t to_u16(uint16_t value) {
+	return ((value << 4) & (uint16_t)0xFFF0) | ((value >> 8) & (uint16_t)0x000F);
+}
 
 void closeFile()
 {
@@ -263,7 +267,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
   {
     for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
     {
-      sample.left = adc_buff[i];
+      sample.left = to_u16(adc_buff[i]);
       sample.right = sample.left;
       dc++;
       fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
@@ -285,7 +289,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   {
     for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
     {
-      sample.left = adc_buff[i];
+      sample.left = to_u16(adc_buff[i]);
       sample.right = sample.left;
       dc++;
       fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
