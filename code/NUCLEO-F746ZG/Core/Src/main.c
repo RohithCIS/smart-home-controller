@@ -49,7 +49,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define USE_FULL_ASSERT
-#define ADC_BUFFER_SIZE 2
+#define ADC_BUFFER_SIZE 1
+#define BLOCK_SIZE		1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,7 +82,6 @@ sampling frequency: 2000 Hz
 */
 
 #define FILTER_TAP_NUM	29
-#define BLOCK_SIZE		1
 
 static float32_t filter_taps[FILTER_TAP_NUM] = {
 
@@ -124,8 +124,10 @@ FATFS *pfs;
 DWORD fre_clust;
 uint32_t total, free_space;
 
-int32_t fc = 5 * SAMPLE_RATE;
-int32_t dc = 0;
+int32_t fc = 3 * SAMPLE_RATE;
+int32_t dc = -1;
+
+uint16_t buffer[3 * SAMPLE_RATE];
 
 wavfile_header_t header;
 PCM16_stereo_t sample;
@@ -145,7 +147,8 @@ void MX_FREERTOS_Init(void);
 extern void initialise_monitor_handles(void);
 
 uint16_t to_u16(uint16_t value) {
-	return ((value << 4) & (uint16_t)0xFFF0) | ((value >> 8) & (uint16_t)0x000F);
+//	return ((value << 4) & (uint16_t)0xFFF0) | ((value >> 8) & (uint16_t)0x000F);
+	return value << 4;
 }
 
 void closeFile()
@@ -315,7 +318,7 @@ void StartDefaultTask(void *argument) {
 void StartAudioInputTask(void *argument) {
 	printf("┣━ Microphone ADC-DMA Channel Setup Complete...\n");
 	printf("┃  ┣━ Starting WAV Write...\r\n");
-	f_open(&fil, "htim8k.wav", FA_OPEN_ALWAYS | FA_WRITE);
+	f_open(&fil, "mic.wav", FA_OPEN_ALWAYS | FA_WRITE);
 
 	header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
 	fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
@@ -325,6 +328,8 @@ void StartAudioInputTask(void *argument) {
 	printf("┃  ┃  ┗━ Wrote WAV Header to File\n");
 	f_sync(&fil);
 	HAL_TIM_Base_Start_IT(&htim7);
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+	printf("┃  ┣━ ADC Started. Recording...\r\n");
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
 	for(;;) {
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
@@ -332,54 +337,11 @@ void StartAudioInputTask(void *argument) {
 	}
 }
 
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
-{
-//  if (dc < fc)
-//  {
-//    for (int i = 0; i < ADC_BUFFER_SIZE / 2; i++)
-//    {
-		signal_in = (float32_t)to_u16(adc_buff[0]);
-		arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
-
-      sample.left = (uint16_t)signal_out;
-      sample.right = sample.left;
-//      dc++;
-//      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-//      if (fresult != FR_OK)
-//        printf("Error Writing to SD Card | Code: %d\n", fresult);
-//    }
-//  }
-//  else
-//  {
-//    HAL_ADC_Stop_DMA(&hadc1);
-//    printf("┃  ┗━ Write Complete. ADC Halted.\n");
-//    closeFile();
-//  }
-}
-
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-//  if (dc < fc)
-//  {
-//    for (int i = ADC_BUFFER_SIZE / 2; i < ADC_BUFFER_SIZE; i++)
-//    {
-		signal_in = (float32_t)to_u16(adc_buff[1]);
-		arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
-
-	  sample.left = (uint16_t)signal_out;
-	  sample.right = sample.left;
-//      dc++;
-//      fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-//      if (fresult != FR_OK)
-//        printf("Error Writing to SD Card | Code: %d\n", fresult);
-//    }
-//  }
-//  else
-//  {
-//    HAL_ADC_Stop_DMA(&hadc1);
-//    printf("┃  ┗━ Write Complete. ADC Halted.\n");
-//    closeFile();
-//  }
+  if (dc < 0) {
+	  dc++;
+  }
 }
 /* USER CODE END 4 */
 
@@ -401,16 +363,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM7) {
-	  if (dc < fc) {
-		  dc++;
-		  fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-		  if (fresult != FR_OK)
-			  printf("Error Writing to SD Card | Code: %d\n", fresult);
-	  } else {
-		  	  HAL_TIM_Base_Stop_IT(&htim7);
-		      HAL_ADC_Stop_DMA(&hadc1);
-		      printf("┃  ┗━ Write Complete. ADC Halted.\n");
-		      closeFile();
+	  if (dc > -1) {
+		  if (dc < fc) {
+//			signal_in = (float32_t)to_u16(adc_buff[0]);
+//			arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
+			buffer[dc - 1] = (adc_buff[0] < 1975 || adc_buff[0] > 2125) ? to_u16(adc_buff[0]) : 0;
+			dc++;
+		  } else {
+			  HAL_TIM_Base_Stop_IT(&htim7);
+			  HAL_ADC_Stop_DMA(&hadc1);
+			  printf("┃  ┣━ ADC Halted.\n");
+			  printf("┃  ┣━ Start buffer dump to SD Card.\n");
+			  for (int i = 0; i < fc; i++) {
+				  sample.left = buffer[i];
+				  sample.right = sample.left;
+				  fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+				  if (fresult != FR_OK)
+					  printf("Error Writing to SD Card | Code: %d\n", fresult);
+			  }
+			  printf("┃  ┗━ Dump Write Complete.\n");
+			  closeFile();
+		  }
 	  }
   }
   /* USER CODE END Callback 1 */

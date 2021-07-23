@@ -31,7 +31,7 @@ typedef struct PCM16_stereo_t
 #define SUBCHUNK1SIZE (16)
 #define AUDIO_FORMAT (1) /*For PCM*/
 #define NUM_CHANNELS (2)
-#define SAMPLE_RATE (8000)
+#define SAMPLE_RATE (16000)
 
 #define BITS_PER_SAMPLE (16)
 
