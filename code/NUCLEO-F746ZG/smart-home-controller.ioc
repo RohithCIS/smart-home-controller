@@ -38,6 +38,7 @@ PD8.Signal=USART3_TX
 Dma.ADC1.0.MemDataAlignment=DMA_MDATAALIGN_HALFWORD
 PB13.Locked=true
 RCC.USART3Freq_Value=54000000
+NVIC.EXTI15_10_IRQn=true\:5\:0\:false\:false\:true\:true\:true\:true
 RCC.PLLSAIRCLKFreq_Value=192000000
 ProjectManager.ProjectBuild=false
 PG13.Locked=true

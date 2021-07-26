@@ -132,6 +132,10 @@ uint16_t buffer[3 * SAMPLE_RATE];
 wavfile_header_t header;
 PCM16_stereo_t sample;
 
+int IS_RECORDING = 0;
+
+char filename[10];
+int file_count = 0;
 
 /* USER CODE END PV */
 
@@ -157,7 +161,7 @@ void closeFile()
   if (fresult != FR_OK)
     printf("Error Closing File | Code: %d\n", fresult);
   else
-    printf("┗━ WAV File Write Success.\n");
+    printf("┃  ┗━ WAV File Write Success.\n");
   return;
 }
 /* USER CODE END 0 */
@@ -316,24 +320,8 @@ void StartDefaultTask(void *argument) {
 }
 
 void StartAudioInputTask(void *argument) {
-	printf("┣━ Microphone ADC-DMA Channel Setup Complete...\n");
-	printf("┃  ┣━ Starting WAV Write...\r\n");
-	f_open(&fil, "mic.wav", FA_OPEN_ALWAYS | FA_WRITE);
-
-	header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
-	fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
-	if (fresult != FR_OK)
-	printf("Error Writing Header to SD Card | Code: %d\n", fresult);
-	else
-	printf("┃  ┃  ┗━ Wrote WAV Header to File\n");
-	f_sync(&fil);
-	HAL_TIM_Base_Start_IT(&htim7);
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
-	printf("┃  ┣━ ADC Started. Recording...\r\n");
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
+	printf("┣━ Microphone Interrupt Setup Complete...\n");
 	for(;;) {
-		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
-		osDelay(500);
 	}
 }
 
@@ -342,6 +330,28 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   if (dc < 0) {
 	  dc++;
   }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if(GPIO_Pin == GPIO_PIN_13 && IS_RECORDING == 0) // If The INT Source Is EXTI Line9 (A9 Pin)
+	{
+		printf("┣━ Start Record Interrupt Received...\r\n");
+		printf("┃  ┣━ Starting WAV Write...\r\n");
+		sprintf(filename, "rec%d.wav", file_count);
+		f_open(&fil, filename, FA_OPEN_ALWAYS | FA_WRITE);
+		header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
+		fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+		if (fresult != FR_OK)
+		printf("Error Writing Header to SD Card | Code: %d\n", fresult);
+		else
+		printf("┃  ┣━ Wrote WAV Header to File\n");
+		f_sync(&fil);
+		HAL_TIM_Base_Start_IT(&htim7);
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+		IS_RECORDING = 1;
+		printf("┃  ┣━ ADC Started. Recording...\r\n");
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buff, ADC_BUFFER_SIZE);
+	}
 }
 /* USER CODE END 4 */
 
@@ -363,7 +373,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM7) {
-	  if (dc > -1) {
+	  if (dc > -1 && IS_RECORDING == 1) {
 		  if (dc < fc) {
 //			signal_in = (float32_t)to_u16(adc_buff[0]);
 //			arm_fir_f32(&FilterSettings, &signal_in, &signal_out, blockSize);
@@ -381,8 +391,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 				  if (fresult != FR_OK)
 					  printf("Error Writing to SD Card | Code: %d\n", fresult);
 			  }
-			  printf("┃  ┗━ Dump Write Complete.\n");
+			  printf("┃  ┣━ %s Dump Write Complete.\n", filename);
 			  closeFile();
+			  dc = 0;
+			  file_count++;
+			  IS_RECORDING = 0;
+			  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 		  }
 	  }
   }
