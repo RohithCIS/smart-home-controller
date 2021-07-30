@@ -227,7 +227,7 @@ int main(void) {
 //  FIR INIT
 	arm_fir_init_f32(&FilterSettings, FILTER_TAP_NUM,
 			(float32_t*) &filter_taps[0], (float32_t*) &firState[0], blockSize);
-	printf("┣━ FIR Low Pass Filter Init Complete...\n");
+	printf("┣━ FIR Band Pass Filter Init Complete...\n");
 
 	// Mount SD Card
 	fresult = f_mount(&fs, "", 1);
