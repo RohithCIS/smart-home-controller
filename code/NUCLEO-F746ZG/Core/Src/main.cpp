@@ -108,23 +108,26 @@ static float32_t filter_taps[FILTER_TAP_NUM] = {
 // TENSORFLOW DECLARATIONS
 // TFLite globals
 namespace {
-tflite::ErrorReporter *error_reporter = nullptr;
+tflite::ErrorReporter* error_reporter = nullptr;
 const tflite::Model *model = nullptr;
 tflite::MicroInterpreter *interpreter = nullptr;
 TfLiteTensor *model_input = nullptr;
 TfLiteTensor *model_output = nullptr;
 
+static tflite::MicroErrorReporter micro_error_reporter;
+
+static tflite::MicroMutableOpResolver<5> micro_op_resolver;
 // Create an area of memory to use for input, output, and other TensorFlow
 // arrays. You'll need to adjust this by compiling, running, and looking
 // for errors.
-constexpr int kTensorArenaSize = 2 * 1024;
+constexpr int kTensorArenaSize = 70 * 1024;
 __attribute__((aligned(16))) uint8_t tensor_arena[kTensorArenaSize];
 }
 
 TfLiteStatus tflite_status;
 uint32_t num_elements;
 uint32_t timestamp;
-float y_val;
+int8_t y_val;
 
 // FIR DECLARATIONS
 arm_fir_instance_f32 FilterSettings;
@@ -148,10 +151,11 @@ FATFS *pfs;
 DWORD fre_clust;
 uint32_t total, free_space;
 
-int32_t fc = 3 * SAMPLE_RATE;
+#define NUM_SECONDS 3
+int32_t fc = NUM_SECONDS * SAMPLE_RATE;
 int32_t dc = -1;
 
-uint16_t buffer[3 * SAMPLE_RATE];
+uint16_t buffer[NUM_SECONDS * SAMPLE_RATE];
 
 wavfile_header_t header;
 PCM16_stereo_t sample;
@@ -170,6 +174,7 @@ void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 }
 
+void setupTFLM();
 void runInference();
 /* USER CODE END PFP */
 
@@ -183,6 +188,7 @@ uint16_t to_u16(uint16_t value);
 void closeFile();
 void startRecording();
 void record();
+void play_feedback();
 /* USER CODE END 0 */
 
 /**
@@ -242,6 +248,7 @@ int main(void) {
 	printf("┃  ┣━ Total Size: %lu MiB\n", total / 1024);
 	printf("┃  ┗━ Free Space: %lu MiB\n", free_space / 1024);
 
+	setupTFLM();
 	/* USER CODE END 2 */
 
 	/* Init scheduler */
@@ -352,6 +359,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	}
 }
 
+void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
+	HAL_I2S_DMAStop(&hi2s2);
+}
+
 void startRecording() {
 	printf("┣━ Start Record Interrupt Received...\r\n");
 	printf("┃  ┣━ Starting WAV Write...\r\n");
@@ -384,6 +395,7 @@ void record() {
 			HAL_TIM_Base_Stop_IT(&htim7);
 			HAL_ADC_Stop_DMA(&hadc1);
 			printf("┃  ┣━ ADC Halted.\n");
+			play_feedback();
 			printf("┃  ┣━ Start buffer dump to SD Card.\n");
 			for (int i = 0; i < fc; i++) {
 				sample.left = buffer[i];
@@ -417,20 +429,89 @@ void closeFile() {
 	return;
 }
 
-void runInference() {
-	static tflite::MicroErrorReporter micro_error_reporter;
+void play_feedback() {
+	HAL_I2S_Transmit_DMA(&hi2s2, buffer, NUM_SECONDS*SAMPLE_RATE);
+}
+
+void setupTFLM() {
 	error_reporter = &micro_error_reporter;
 
-	// Say something to test error reporter
-	error_reporter->Report("STM32 TensorFlow Lite test");
-
 	// Map the model into a usable data structure
-//	model = tflite::GetModel(speech_model);
-//	if (model->version() != TFLITE_SCHEMA_VERSION)
-//	{
-//	error_reporter->Report("Model version does not match Schema");
-//	while(1);
-//	}
+	model = tflite::GetModel(speech_model);
+	if (model->version() != TFLITE_SCHEMA_VERSION)
+	{
+		printf("┣━ [TFLM] Model version does not match Schema\n");\
+	} else {
+		printf("┣━ [TFLM] Model Loaded Successfully\n");
+	}
+
+	// Add neural network layer operations
+	tflite_status = micro_op_resolver.AddResizeBilinear();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] Could not add RESIZE_BILINEAR layer\n");
+	}
+	tflite_status = micro_op_resolver.AddReshape();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] Could not add RESHAPE layer\n");
+	}
+	tflite_status = micro_op_resolver.AddConv2D();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] Could not add CONV_2D layer\n");
+	}
+	tflite_status = micro_op_resolver.AddMaxPool2D();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] Could not add MAX_POOL_2D layer\n");
+	}
+	tflite_status = micro_op_resolver.AddFullyConnected();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] Could not add FULLY_CONNECTED layer\n");
+	}
+
+
+	static tflite::MicroInterpreter static_interpreter(
+	  model, micro_op_resolver, tensor_arena, kTensorArenaSize, error_reporter);
+	interpreter = &static_interpreter;
+
+	// Allocate memory from the tensor_arena for the model's tensors.
+	tflite_status = interpreter->AllocateTensors();
+	if (tflite_status != kTfLiteOk)
+	{
+		printf("┣━ [TFLM] AllocateTensors() failed");
+	}
+
+	// Assign model input and output buffers (tensors) to pointers
+	model_input = interpreter->input(0);
+	model_output = interpreter->output(0);
+
+	// Get number of elements in input tensor
+	num_elements = model_input->bytes / sizeof(uint8_t);
+	printf("┣━ [TFLM] Number of input elements: %lu\r\n", num_elements);
+	printf("┣━ [TFLM] Setup Complete\n");
+}
+
+void runInference() {
+	// Fill input buffer (use test value)
+	for (int i = 0; i < num_elements; i++)
+	{
+	  model_input->data.int8[i] = i/16;
+	}
+
+	// Run inference
+	tflite_status = interpreter->Invoke();
+	if (tflite_status != kTfLiteOk)
+	{
+	  error_reporter->Report("Invoke failed");
+	}
+
+	y_val = model_output->data.int8[0] >= model_output->data.int8[1] ? 0 : 1;
+
+	// Print output of neural network along with inference time (microseconds)
+	printf("Output: %s\r\n",y_val == 0 ? "off" : "on");
 }
 /* USER CODE END 4 */
 
