@@ -142,7 +142,7 @@ static tflite::MicroMutableOpResolver<5> micro_op_resolver;
 // Create an area of memory to use for input, output, and other TensorFlow
 // arrays. You'll need to adjust this by compiling, running, and looking
 // for errors.
-constexpr int kTensorArenaSize = 30 * 1024;
+constexpr int kTensorArenaSize = 70 * 1024;
 __attribute__((aligned(16))) uint8_t tensor_arena[kTensorArenaSize];
 }
 
@@ -158,6 +158,12 @@ uint32_t blockSize = BLOCK_SIZE;
 
 float32_t signal_in = 0;
 float32_t signal_out = 0;
+
+// FFT DECLARATIONS
+arm_rfft_fast_instance_f32 FFTSettings;
+float32_t fft_buffer[512];
+float32_t fft_out[512];
+arm_status status;
 
 // FATFS_SD FILE SYSTEM DECLARATIONS
 uint16_t raw;
@@ -256,11 +262,6 @@ int main(void) {
 	/* USER CODE BEGIN 2 */
 	printf("┣━ Firmware Init Complete...\n");
 
-//  FIR INIT
-//	arm_fir_init_f32(&FilterSettings, FILTER_TAP_NUM,
-//			(float32_t*) &filter_taps[0], (float32_t*) &firState[0], blockSize);
-//	printf("┣━ FIR Band Pass Filter Init Complete...\n");
-
 	// Mount SD Card
 	fresult = f_mount(&fs, "", 1);
 	if (fresult != FR_OK)
@@ -273,6 +274,21 @@ int main(void) {
 	free_space = (uint32_t) (fre_clust * pfs->csize * 0.5);
 	printf("┃  ┣━ Total Size: %lu MiB\n", total / 1024);
 	printf("┃  ┗━ Free Space: %lu MiB\n", free_space / 1024);
+
+	setupTFLM();
+
+	//  FIR INIT
+//	arm_fir_init_f32(&FilterSettings, FILTER_TAP_NUM,
+//			(float32_t*) &filter_taps[0], (float32_t*) &firState[0], blockSize);
+//	printf("┣━ FIR Band Pass Filter Initialised...\n");
+//	status = arm_cfft_radix2_init_f32(&FFTSettings, 512, 0, 1);
+	for (int i = 0; i < 512; i++) {
+		fft_buffer[i] = 0;
+	}
+//	if (status == ARM_MATH_SUCCESS)
+//		printf("┣━ FFT Init Complete...\n");
+//	else
+//		printf("██ FFT Init Error | Code: %d\n", status);
 
 //	setupTFLM();
 	/* USER CODE END 2 */
@@ -358,16 +374,15 @@ void SystemClock_Config(void) {
 
 /* USER CODE BEGIN 4 */
 
-void StartDefaultTask(void *argument) {
-	for (;;) {
-		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
-		osDelay(500);
+void StartDefaultTask(void *argument){
+	for(;;) {
+		osDelay(3000);
 	}
 }
 
-void StartAudioInputTask(void *argument) {
-	printf("┣━ Microphone Interrupt Setup Complete...\n");
-	for (;;) {
+void StartAudioInputTask(void *argument){
+	for(;;) {
+		osDelay(3000);
 	}
 }
 
@@ -406,16 +421,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 void startRecording() {
 	printf("┣━ Start Record Interrupt Received...\r\n");
-	printf("┃  ┣━ Starting WAV Write...\r\n");
-	sprintf(filename, "rec%d.wav", file_count);
-	f_open(&fil, filename, FA_OPEN_ALWAYS | FA_WRITE);
-	header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
-	fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
-	if (fresult != FR_OK)
-		printf("Error Writing Header to SD Card | Code: %d\n", fresult);
-	else
-		printf("┃  ┣━ Wrote WAV Header to File\n");
-	f_sync(&fil);
+//	printf("┃  ┣━ Starting WAV Write...\r\n");
+//	sprintf(filename, "rec%d.wav", file_count);
+//	f_open(&fil, filename, FA_OPEN_ALWAYS | FA_WRITE);
+//	header = get_PCM16_stereo_header(SAMPLE_RATE, fc);
+//	fresult = f_write(&fil, &header, sizeof(wavfile_header_t), &bw);
+//	if (fresult != FR_OK)
+//		printf("Error Writing Header to SD Card | Code: %d\n", fresult);
+//	else
+//		printf("┃  ┣━ Wrote WAV Header to File\n");
+//	f_sync(&fil);
 	HAL_TIM_Base_Start_IT(&htim7);
 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 	IS_RECORDING = 1;
@@ -438,19 +453,19 @@ void record() {
 			HAL_ADC_Stop_DMA(&hadc1);
 			printf("┃  ┣━ ADC Halted.\n");
 //			play_feedback();
-			printf("┃  ┣━ Start buffer dump to SD Card.\n");
-			for (int i = 0; i < fc; i++) {
-				sample.left = buffer[i];
-				sample.right = sample.left;
-				fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
-				if (fresult != FR_OK)
-					printf("Error Writing to SD Card | Code: %d\n", fresult);
-			}
-			printf("┃  ┣━ %s Dump Write Complete.\n", filename);
-			closeFile();
-//			runInference();
+//			printf("┃  ┣━ Start buffer dump to SD Card.\n");
+//			for (int i = 0; i < fc; i++) {
+//				sample.left = buffer[i];
+//				sample.right = sample.left;
+//				fresult = f_write(&fil, &sample, sizeof(PCM16_stereo_t), &bw);
+//				if (fresult != FR_OK)
+//					printf("Error Writing to SD Card | Code: %d\n", fresult);
+//			}
+//			printf("┃  ┣━ %s Dump Write Complete.\n", filename);
+//			closeFile();
+			runInference();
 			dc = 0;
-			file_count++;
+//			file_count++;
 			IS_RECORDING = 0;
 			HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 		}
@@ -538,10 +553,31 @@ void setupTFLM() {
 }
 
 void runInference() {
+	printf("┃  ┣━ Starting Inference...\n");
 	// Fill input buffer (use test value)
-	for (uint32_t i = 0; i < num_elements; i++) {
-		model_input->data.int8[i] = i / 16;
+	for (uint32_t i = 0; i < 100; i++) {
+		if (i == 0) {
+			for (int j = 0; j < 480; j++) {
+				fft_buffer[j] = buffer[j];
+			}
+		} else {
+			for (uint16_t j = i*480-160, k = 0; k < 480; j++, k++) {
+				fft_buffer[k] = buffer[j];
+			}
+		}
+		status = arm_rfft_fast_init_f32(&FFTSettings, 512);
+		if (status != ARM_MATH_SUCCESS)
+			printf("██ FFT Init Error | Code: %d\n", status);
+		arm_rfft_fast_f32(&FFTSettings, fft_buffer, fft_out, 0);
+		for(int j = 0; j < 80; j++) {
+			int8_t sum = 0;
+			for(int k = 0; k < 6; k++) {
+				sum += fft_out[j*6+k];
+			}
+			model_input->data.int8[j*80+i] = sum/6;
+		}
 	}
+	printf("┃  ┣━ Spectrogram Generated\n");
 
 	// Run inference
 	tflite_status = interpreter->Invoke();
@@ -552,7 +588,7 @@ void runInference() {
 	y_val = model_output->data.int8[0] >= model_output->data.int8[1] ? 0 : 1;
 
 	// Print output of neural network along with inference time (microseconds)
-	printf("Output: %s\r\n", y_val == 0 ? "off" : "on");
+	printf("┃  ┗━ [TFLM] Output: %s, Confidence [Off/On]:%d/%d\r\n", y_val == 0 ? "off" : "on", model_output->data.int8[0], model_output->data.int8[1]);
 }
 /* USER CODE END 4 */
 
