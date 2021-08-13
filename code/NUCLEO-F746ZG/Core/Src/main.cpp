@@ -275,7 +275,7 @@ int main(void) {
 	printf("┃  ┣━ Total Size: %lu MiB\n", total / 1024);
 	printf("┃  ┗━ Free Space: %lu MiB\n", free_space / 1024);
 
-	setupTFLM();
+//	setupTFLM();
 
 	//  FIR INIT
 //	arm_fir_init_f32(&FilterSettings, FILTER_TAP_NUM,
@@ -290,7 +290,7 @@ int main(void) {
 //	else
 //		printf("██ FFT Init Error | Code: %d\n", status);
 
-//	setupTFLM();
+	setupTFLM();
 	/* USER CODE END 2 */
 
 	/* Init scheduler */
@@ -408,16 +408,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 //	}
 //}
 
-//void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
+void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
 //	if (tx_frame_count < NUM_SECONDS * SAMPLE_RATE * 2) {
 //		i2s_buff[2] = buffer[tx_frame_count];
 //		i2s_buff[3] = buffer[tx_frame_count];
 //		tx_frame_count++;
 //	} else {
-//		HAL_I2S_DMAStop(&hi2s2);
-//		printf("┣━ Feedback Playback Stop\n");
+		HAL_I2S_DMAStop(&hi2s2);
+		printf("┣━ Feedback Playback Stop\n");
 //	}
-//}
+}
 
 void startRecording() {
 	printf("┣━ Start Record Interrupt Received...\r\n");
@@ -584,11 +584,15 @@ void runInference() {
 	if (tflite_status != kTfLiteOk) {
 		error_reporter->Report("Invoke failed");
 	}
-
 	y_val = model_output->data.int8[0] >= model_output->data.int8[1] ? 0 : 1;
 
 	// Print output of neural network along with inference time (microseconds)
-	printf("┃  ┗━ [TFLM] Output: %s, Confidence [Off/On]:%d/%d\r\n", y_val == 0 ? "off" : "on", model_output->data.int8[0], model_output->data.int8[1]);
+	printf("┃  ┗━ [TFLM] Output: %s, Confidence [On/Off]:%d/%d\r\n", y_val == 0 ? "on" : "off", model_output->data.int8[0], model_output->data.int8[1]);
+	if (y_val == 1) {
+		HAL_GPIO_TogglePin(GPIOB, LD4_Pin);
+	} else {
+		HAL_GPIO_TogglePin(GPIOB, LD4_Pin);
+	}
 }
 /* USER CODE END 4 */
 
